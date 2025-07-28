@@ -1,932 +1,539 @@
-using System;
-using System.IO;
-using System.Threading.Tasks;
-using System.Windows;
-using System.Windows.Input;
-using System.Windows.Media;
-using System.Windows.Media.Animation;
-using System.Windows.Threading;
-using System.Diagnostics;
-using System.Linq;
-using Microsoft.Win32;
-using System.Threading;
-using System.Windows.Controls;
+<Window x:Class="PremiumLoader.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Enclave Loader" 
+        Height="800" Width="1200"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="Transparent"
+        ResizeMode="CanResize"
+        WindowStartupLocation="CenterScreen">
 
-namespace PremiumLoader
-{
-    public partial class MainWindow : Window
-    {
-        private readonly LoadingService _loadingService;
-        private bool _isLoading = false;
-        private DispatcherTimer? _statusDotTimer;
-        private DispatcherTimer? _processWatchTimer;
-        private bool _gameDetected = false;
-        private bool _injectionStarted = false;
+    <Window.Resources>
+        <!-- Modern Color Palette -->
+        <SolidColorBrush x:Key="DarkPrimary" Color="#0D1117"/>
+        <SolidColorBrush x:Key="DarkSecondary" Color="#161B22"/>
+        <SolidColorBrush x:Key="DarkTertiary" Color="#21262D"/>
+        <SolidColorBrush x:Key="DarkQuaternary" Color="#30363D"/>
+        <SolidColorBrush x:Key="AccentBlue" Color="#58A6FF"/>
+        <SolidColorBrush x:Key="AccentPurple" Color="#A855F7"/>
+        <SolidColorBrush x:Key="AccentGreen" Color="#3FB950"/>
+        <SolidColorBrush x:Key="AccentRed" Color="#F85149"/>
+        <SolidColorBrush x:Key="AccentOrange" Color="#FF8C42"/>
+        <SolidColorBrush x:Key="TextPrimary" Color="#F0F6FC"/>
+        <SolidColorBrush x:Key="TextSecondary" Color="#8B949E"/>
+        <SolidColorBrush x:Key="TextMuted" Color="#6E7681"/>
 
-        public MainWindow()
-        {
-            InitializeComponent();
-            _loadingService = new LoadingService();
-            
-            // Initialize UI components first
-            InitializeUI();
-            
-            // Set up window to be invisible but still trigger events
-            // Keep the proper styling from XAML but move off-screen
-            this.Left = -10000; // Move off-screen
-            this.Top = -10000;
-            this.ShowInTaskbar = false;
-            this.WindowState = WindowState.Minimized;
-            
-            this.Loaded += OnWindowLoaded;
-        }
+        <!-- Premium Gradients -->
+        <LinearGradientBrush x:Key="MainBackgroundGradient" StartPoint="0,0" EndPoint="1,1">
+            <GradientStop Color="#0D1117" Offset="0"/>
+            <GradientStop Color="#161B22" Offset="0.7"/>
+            <GradientStop Color="#21262D" Offset="1"/>
+        </LinearGradientBrush>
 
-        private async void OnWindowLoaded(object sender, RoutedEventArgs e)
-        {
-            Console.WriteLine("Window loaded event fired, starting Steam check...");
-            
-            // Keep window hidden during Steam check
-            this.Visibility = Visibility.Hidden;
-            
-            try
-            {
-                await CheckAndCloseSteamBeforeLoader();
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error in OnWindowLoaded: {ex.Message}");
-                MessageBox.Show($"Error during startup: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-            }
-        }
+        <LinearGradientBrush x:Key="PrimaryButtonGradient" StartPoint="0,0" EndPoint="0,1">
+            <GradientStop Color="#58A6FF" Offset="0"/>
+            <GradientStop Color="#A855F7" Offset="1"/>
+        </LinearGradientBrush>
 
-        private void InitializeUI()
-        {
-            // Set initial status (for when loader is shown)
-            UpdateStatus("Ready", Colors.LimeGreen, "System ready for loading");
-            
-            // Start status dot animation (for when loader is shown)
-            StartStatusDotAnimation();
-        }
+        <LinearGradientBrush x:Key="CS2CardGradient" StartPoint="0,0" EndPoint="0,1">
+            <GradientStop Color="#FF2B5CE6" Offset="0"/>
+            <GradientStop Color="#FF1E40AF" Offset="0.3"/>
+            <GradientStop Color="#CC0F172A" Offset="0.7"/>
+            <GradientStop Color="#990F172A" Offset="1"/>
+        </LinearGradientBrush>
 
-        private async Task CheckAndCloseSteamBeforeLoader()
-        {
-            try
-            {
-                Console.WriteLine("Checking for Steam processes before showing loader...");
-                var steamProcesses = Process.GetProcessesByName("steam").ToList();
-                
-                if (steamProcesses.Any())
-                {
-                    Console.WriteLine($"Found {steamProcesses.Count} Steam process(es). Closing them...");
-                    
-                    // Kill all Steam processes
-                    foreach (var process in steamProcesses)
-                    {
-                        try
-                        {
-                            process.Kill();
-                        }
-                        catch (Exception ex)
-                        {
-                            Console.WriteLine($"Error killing Steam process: {ex.Message}");
-                        }
-                    }
-                    
-                    // Wait 2 seconds to be sure Steam is closed
-                    Console.WriteLine("Waiting 2 seconds for Steam to fully close...");
-                    await Task.Delay(2000);
-                    
-                    // Verify Steam is actually closed
-                    var remainingProcesses = Process.GetProcessesByName("steam");
-                    if (remainingProcesses.Length > 0)
-                    {
-                        Console.WriteLine($"Warning: {remainingProcesses.Length} Steam process(es) still running");
-                    }
-                    else
-                    {
-                        Console.WriteLine("Steam processes closed successfully.");
-                    }
-                    
-                    // Show message that Steam is closed
-                    var result = MessageBox.Show(
-                        "Steam has been closed for security reasons.\n\nThis ensures the loader can operate safely without interference.\n\nClick OK to show the CS2 Loader.",
-                        "Steam Closed - Security Measure",
-                        MessageBoxButton.OK,
-                        MessageBoxImage.Information);
-                }
-                else
-                {
-                    Console.WriteLine("No Steam processes found.");
-                    
-                    // Still show message for consistency
-                    var result = MessageBox.Show(
-                        "Steam check completed.\n\nClick OK to show the CS2 Loader.",
-                        "CS2 Loader Ready",
-                        MessageBoxButton.OK,
-                        MessageBoxImage.Information);
-                }
-                
-                // NOW show the loader after user clicks OK
-                ShowLoader();
-                
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error during Steam check: {ex.Message}");
-                var result = MessageBox.Show(
-                    $"Error during initialization: {ex.Message}\n\nClick OK to continue anyway.",
-                    "Error",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Warning);
-                
-                ShowLoader();
-            }
-        }
+        <RadialGradientBrush x:Key="GlowGradient" Center="0.5,0.5" RadiusX="1" RadiusY="1">
+            <GradientStop Color="#4D58A6FF" Offset="0"/>
+            <GradientStop Color="#1958A6FF" Offset="0.7"/>
+            <GradientStop Color="#0058A6FF" Offset="1"/>
+        </RadialGradientBrush>
 
-        private void ShowLoader()
-        {
-            Console.WriteLine("Showing CS2 Loader interface...");
+        <!-- Modern Button Style with Hover Transitions -->
+        <Style x:Key="ModernButtonStyle" TargetType="Button">
+            <Setter Property="Background" Value="{StaticResource PrimaryButtonGradient}"/>
+            <Setter Property="Foreground" Value="{StaticResource TextPrimary}"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="40,18"/>
+            <Setter Property="FontSize" Value="16"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <!-- Text Rendering Fixes -->
+            <Setter Property="UseLayoutRounding" Value="True"/>
+            <Setter Property="SnapsToDevicePixels" Value="True"/>
+            <Setter Property="TextOptions.TextFormattingMode" Value="Display"/>
+            <Setter Property="TextOptions.TextRenderingMode" Value="ClearType"/>
+            <Setter Property="TextOptions.TextHintingMode" Value="Fixed"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="MainBorder" 
+                                Background="{TemplateBinding Background}"
+                                CornerRadius="14"
+                                Padding="{TemplateBinding Padding}"
+                                UseLayoutRounding="True"
+                                SnapsToDevicePixels="True">
+                            <Border.Effect>
+                                <DropShadowEffect x:Name="ButtonShadow" 
+                                                Color="#58A6FF" 
+                                                BlurRadius="20" 
+                                                ShadowDepth="0" 
+                                                Opacity="0.4"/>
+                            </Border.Effect>
+                            <ContentPresenter x:Name="ContentPresenter"
+                                            HorizontalAlignment="Center" 
+                                            VerticalAlignment="Center"
+                                            UseLayoutRounding="True"
+                                            SnapsToDevicePixels="True"
+                                            TextOptions.TextFormattingMode="Display"
+                                            TextOptions.TextRenderingMode="ClearType"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Trigger.EnterActions>
+                                    <BeginStoryboard>
+                                        <Storyboard>
+                                            <DoubleAnimation Storyboard.TargetName="MainBorder"
+                                                           Storyboard.TargetProperty="(RenderTransform).(ScaleTransform.ScaleX)"
+                                                           To="1.05" Duration="0:0:0.2">
+                                                <DoubleAnimation.EasingFunction>
+                                                    <CubicEase EasingMode="EaseOut"/>
+                                                </DoubleAnimation.EasingFunction>
+                                            </DoubleAnimation>
+                                            <DoubleAnimation Storyboard.TargetName="MainBorder"
+                                                           Storyboard.TargetProperty="(RenderTransform).(ScaleTransform.ScaleY)"
+                                                           To="1.05" Duration="0:0:0.2">
+                                                <DoubleAnimation.EasingFunction>
+                                                    <CubicEase EasingMode="EaseOut"/>
+                                                </DoubleAnimation.EasingFunction>
+                                            </DoubleAnimation>
+                                            <DoubleAnimation Storyboard.TargetName="ButtonShadow"
+                                                           Storyboard.TargetProperty="BlurRadius"
+                                                           To="30" Duration="0:0:0.2"/>
+                                            <DoubleAnimation Storyboard.TargetName="ButtonShadow"
+                                                           Storyboard.TargetProperty="Opacity"
+                                                           To="0.7" Duration="0:0:0.2"/>
+                                        </Storyboard>
+                                    </BeginStoryboard>
+                                </Trigger.EnterActions>
+                                <Trigger.ExitActions>
+                                    <BeginStoryboard>
+                                        <Storyboard>
+                                            <DoubleAnimation Storyboard.TargetName="MainBorder"
+                                                           Storyboard.TargetProperty="(RenderTransform).(ScaleTransform.ScaleX)"
+                                                           To="1.0" Duration="0:0:0.2">
+                                                <DoubleAnimation.EasingFunction>
+                                                    <CubicEase EasingMode="EaseOut"/>
+                                                </DoubleAnimation.EasingFunction>
+                                            </DoubleAnimation>
+                                            <DoubleAnimation Storyboard.TargetName="MainBorder"
+                                                           Storyboard.TargetProperty="(RenderTransform).(ScaleTransform.ScaleY)"
+                                                           To="1.0" Duration="0:0:0.2">
+                                                <DoubleAnimation.EasingFunction>
+                                                    <CubicEase EasingMode="EaseOut"/>
+                                                </DoubleAnimation.EasingFunction>
+                                            </DoubleAnimation>
+                                            <DoubleAnimation Storyboard.TargetName="ButtonShadow"
+                                                           Storyboard.TargetProperty="BlurRadius"
+                                                           To="20" Duration="0:0:0.2"/>
+                                            <DoubleAnimation Storyboard.TargetName="ButtonShadow"
+                                                           Storyboard.TargetProperty="Opacity"
+                                                           To="0.4" Duration="0:0:0.2"/>
+                                        </Storyboard>
+                                    </BeginStoryboard>
+                                </Trigger.ExitActions>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="MainBorder" Property="RenderTransform">
+                                    <Setter.Value>
+                                        <ScaleTransform ScaleX="0.98" ScaleY="0.98"/>
+                                    </Setter.Value>
+                                </Setter>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="MainBorder" Property="Background" Value="{StaticResource DarkQuaternary}"/>
+                                <Setter TargetName="MainBorder" Property="Effect" Value="{x:Null}"/>
+                                <Setter Property="Opacity" Value="0.6"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Setter Property="RenderTransformOrigin" Value="0.5,0.5"/>
+            <Setter Property="RenderTransform">
+                <Setter.Value>
+                    <ScaleTransform ScaleX="1" ScaleY="1"/>
+                </Setter.Value>
+            </Setter>
+        </Style>
 
-            // Restore proper window positioning and visibility
-            // Don't change AllowsTransparency or WindowStyle as they're set in XAML
-            this.Left = (SystemParameters.PrimaryScreenWidth - 1200) / 2;
-            this.Top = (SystemParameters.PrimaryScreenHeight - 800) / 2;
-            this.WindowState = WindowState.Normal;
-            this.Visibility = Visibility.Visible;
-            this.ShowInTaskbar = true;
-            this.Activate();
-            this.Focus();
+        <!-- Title Bar Button Style -->
+        <Style x:Key="TitleBarButtonStyle" TargetType="Button">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="{StaticResource TextSecondary}"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Width" Value="46"/>
+            <Setter Property="Height" Value="32"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="border" 
+                                Background="{TemplateBinding Background}"
+                                CornerRadius="6">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="{StaticResource DarkQuaternary}"/>
+                                <Setter Property="Foreground" Value="{StaticResource TextPrimary}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
 
-            // Animate the loader entrance
-            AnimateWindowEntry();
+        <!-- Enhanced Glass Card Style -->
+        <Style x:Key="CS2CardStyle" TargetType="Border">
+            <Setter Property="Background" Value="{StaticResource CS2CardGradient}"/>
+            <Setter Property="BorderBrush">
+                <Setter.Value>
+                    <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                        <GradientStop Color="#6058A6FF" Offset="0"/>
+                        <GradientStop Color="#3058A6FF" Offset="1"/>
+                    </LinearGradientBrush>
+                </Setter.Value>
+            </Setter>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="24"/>
+            <Setter Property="Effect">
+                <Setter.Value>
+                    <DropShadowEffect Color="#000000" Direction="270" ShadowDepth="15" BlurRadius="50" Opacity="0.9"/>
+                </Setter.Value>
+            </Setter>
+        </Style>
 
-            Console.WriteLine("CS2 Loader is now ready for use.");
-        }
+        <!-- Status Indicator Style with proper centering and text rendering -->
+        <Style x:Key="StatusIndicatorStyle" TargetType="Border">
+            <Setter Property="CornerRadius" Value="20"/>
+            <Setter Property="Padding" Value="20,10"/>
+            <Setter Property="HorizontalAlignment" Value="Center"/>
+            <Setter Property="UseLayoutRounding" Value="True"/>
+            <Setter Property="SnapsToDevicePixels" Value="True"/>
+            <Setter Property="Effect">
+                <Setter.Value>
+                    <DropShadowEffect Color="#000000" Direction="270" ShadowDepth="3" BlurRadius="12" Opacity="0.4"/>
+                </Setter.Value>
+            </Setter>
+        </Style>
 
-        private async Task PerformLoading()
-        {
-            _isLoading = true;
-            
-            try
-            {
-                // Phase 1: Initial loading with lazy delay
-                await InitialLoadingPhase();
-                
-                // Phase 2: Hide main UI and show progress bar
-                await HideMainUIAndShowProgress();
-                
-                // Phase 3: Start Steam and show CS2 page
-                await StartSteamWithCS2();
-                
-                // Phase 4: Wait for user to start game
-                await WaitForGameStart();
-                
-                // Phase 5: Wait for lobby time and inject
-                await WaitAndInject();
-                
-                // Phase 6: Close application
-                await CloseApplication();
-            }
-            catch (Exception ex)
-            {
-                UpdateStatus("Error", Colors.Red, $"Loading error: {ex.Message}");
-                PlayErrorFeedback();
-                _isLoading = false;
-                LoadButton.IsEnabled = true;
-                LoadButton.Content = "LOAD NOW";
-                ProgressBar.Visibility = Visibility.Collapsed;
-            }
-        }
+        <!-- Text Styles with better rendering -->
+        <Style x:Key="HeadingStyle" TargetType="TextBlock">
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="Foreground" Value="{StaticResource TextPrimary}"/>
+            <Setter Property="TextAlignment" Value="Center"/>
+            <Setter Property="UseLayoutRounding" Value="True"/>
+            <Setter Property="SnapsToDevicePixels" Value="True"/>
+            <Setter Property="TextOptions.TextFormattingMode" Value="Display"/>
+            <Setter Property="TextOptions.TextRenderingMode" Value="ClearType"/>
+            <Setter Property="TextOptions.TextHintingMode" Value="Fixed"/>
+        </Style>
 
-        private async Task InitialLoadingPhase()
-        {
-            Console.WriteLine("=== Phase 1: Initial Loading ===");
-            
-            // Disable button and show progress
-            LoadButton.IsEnabled = false;
-            LoadButton.Content = "LOADING...";
-            ProgressBar.Visibility = Visibility.Visible;
-            
-            UpdateStatus("Loading", Colors.Orange, "Preparing advanced loading system...");
-            
-            // Random delay between 5-10 seconds
-            var random = new Random();
-            int delay = random.Next(5000, 10001); // 5-10 seconds
-            Console.WriteLine($"Lazy loading for {delay}ms...");
-            
-            // Simulate different loading phases
-            UpdateStatus("Analyzing", Colors.Orange, "Analyzing system configuration...");
-            await Task.Delay(delay / 4);
-            
-            UpdateStatus("Preparing", Colors.Orange, "Preparing security bypass modules...");
-            await Task.Delay(delay / 4);
-            
-            UpdateStatus("Configuring", Colors.Orange, "Configuring injection parameters...");
-            await Task.Delay(delay / 4);
-            
-            UpdateStatus("Initializing", Colors.Orange, "Initializing loader subsystems...");
-            await Task.Delay(delay / 4);
-        }
+        <Style x:Key="SubheadingStyle" TargetType="TextBlock">
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Foreground" Value="{StaticResource TextSecondary}"/>
+            <Setter Property="TextAlignment" Value="Center"/>
+            <Setter Property="UseLayoutRounding" Value="True"/>
+            <Setter Property="SnapsToDevicePixels" Value="True"/>
+            <Setter Property="TextOptions.TextFormattingMode" Value="Display"/>
+            <Setter Property="TextOptions.TextRenderingMode" Value="ClearType"/>
+            <Setter Property="TextOptions.TextHintingMode" Value="Fixed"/>
+        </Style>
 
-        private async Task HideMainUIAndShowProgress()
-        {
-            Console.WriteLine("=== Phase 2: Hiding Main UI ===");
-            
-            // Hide the entire window
-            this.Visibility = Visibility.Hidden;
-            
-            // Show standalone progress bar in a new minimal window
-            await ShowStandaloneProgressBar();
-        }
+        <Style x:Key="BodyTextStyle" TargetType="TextBlock">
+            <Setter Property="FontWeight" Value="Normal"/>
+            <Setter Property="Foreground" Value="{StaticResource TextSecondary}"/>
+            <Setter Property="UseLayoutRounding" Value="True"/>
+            <Setter Property="SnapsToDevicePixels" Value="True"/>
+            <Setter Property="TextOptions.TextFormattingMode" Value="Display"/>
+            <Setter Property="TextOptions.TextRenderingMode" Value="ClearType"/>
+            <Setter Property="TextOptions.TextHintingMode" Value="Fixed"/>
+        </Style>
+    </Window.Resources>
 
-        private async Task ShowStandaloneProgressBar()
-        {
-            Console.WriteLine("Showing standalone progress bar...");
-            
-            // Create a new minimal window for progress bar only
-            var progressWindow = new Window
-            {
-                Title = "CS2 Loader",
-                Width = 400,
-                Height = 150,
-                WindowStyle = WindowStyle.None,
-                AllowsTransparency = true,
-                Background = System.Windows.Media.Brushes.Transparent,
-                WindowStartupLocation = WindowStartupLocation.CenterScreen,
-                Topmost = true,
-                ShowInTaskbar = false
-            };
-            
-            var progressBorder = new Border
-            {
-                Background = new SolidColorBrush(Color.FromArgb(240, 22, 27, 34)),
-                CornerRadius = new CornerRadius(16),
-                //Padding = new Thickness(40, 30),
-                HorizontalAlignment = HorizontalAlignment.Center,
-                VerticalAlignment = VerticalAlignment.Center,
-                Effect = new System.Windows.Media.Effects.DropShadowEffect
-                {
-                    Color = Colors.Black,
-                    Direction = 270,
-                    ShadowDepth = 10,
-                    BlurRadius = 30,
-                    Opacity = 0.8
-                }
-            };
-            
-            var progressStack = new StackPanel
-            {
-                Orientation = Orientation.Vertical,
-                HorizontalAlignment = HorizontalAlignment.Center
-            };
-            
-            var progressText = new TextBlock
-            {
-                Text = "Initializing Steam Integration...",
-                Foreground = new SolidColorBrush(Colors.White),
-                FontSize = 16,
-                FontWeight = FontWeights.SemiBold,
-                HorizontalAlignment = HorizontalAlignment.Center,
-                Margin = new Thickness(0, 0, 0, 20),
-                UseLayoutRounding = true,
-                SnapsToDevicePixels = true
-            };
-            
-            var progressBarCustom = new ProgressBar
-            {
-                Width = 300,
-                Height = 8,
-                Background = new SolidColorBrush(Color.FromArgb(255, 48, 54, 61)),
-                Foreground = new SolidColorBrush(Color.FromArgb(255, 88, 166, 255)),
-                IsIndeterminate = true
-            };
-            
-            progressStack.Children.Add(progressText);
-            progressStack.Children.Add(progressBarCustom);
-            progressBorder.Child = progressStack;
-            progressWindow.Content = progressBorder;
-            
-            // Show the progress window
-            progressWindow.Show();
-            
-            // Random duration for progress
-            var random = new Random();
-            int progressDuration = random.Next(8000, 15001); // 8-15 seconds
-            Console.WriteLine($"Progress duration: {progressDuration}ms");
-            
-            await Task.Delay(progressDuration);
-            
-            // Close progress window
-            progressWindow.Close();
-        }
+    <!-- Main Container -->
+    <Border Background="{StaticResource MainBackgroundGradient}" 
+            CornerRadius="16"
+            UseLayoutRounding="True"
+            SnapsToDevicePixels="True">
+        <Border.Effect>
+            <DropShadowEffect Color="#000000" Direction="270" ShadowDepth="20" BlurRadius="60" Opacity="0.8"/>
+        </Border.Effect>
+        
+        <Grid ClipToBounds="True">
+            <!-- Background Elements -->
+            <Canvas ClipToBounds="True">
+                <!-- Floating Orbs -->
+                <Ellipse Canvas.Left="-200" Canvas.Top="-100" 
+                         Width="400" Height="400" 
+                         Fill="{StaticResource GlowGradient}"
+                         Opacity="0.05"/>
+                
+                <Ellipse Canvas.Right="-300" Canvas.Bottom="-200" 
+                         Width="500" Height="500" 
+                         Fill="#1AA855F7"
+                         Opacity="0.03"/>
+            </Canvas>
 
-        private async Task StartSteamWithCS2()
-        {
-            Console.WriteLine("=== Phase 3: Starting Steam with CS2 ===");
-            
-            try
-            {
-                // Find Steam installation
-                string steamPath = GetSteamPath();
-                if (string.IsNullOrEmpty(steamPath))
-                {
-                    throw new Exception("Steam installation not found");
-                }
-                
-                Console.WriteLine($"Found Steam at: {steamPath}");
-                
-                // Start Steam with CS2 library page
-                var steamProcess = new ProcessStartInfo
-                {
-                    FileName = steamPath,
-                    Arguments = "steam://nav/games/details/730",
-                    UseShellExecute = true
-                };
-                
-                Process.Start(steamProcess);
-                Console.WriteLine("Steam started with CS2 page");
-                
-                // Wait longer for Steam to fully load and show the CS2 page
-                Console.WriteLine("Waiting for Steam to fully initialize...");
-                await Task.Delay(8000); // Increased wait time
-                
-                Console.WriteLine("Steam should now be showing the CS2 page");
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error starting Steam: {ex.Message}");
-                throw;
-            }
-        }
+            <!-- Main Layout -->
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="60"/>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="60"/>
+                </Grid.RowDefinitions>
 
-        private string GetSteamPath()
-        {
-            try
-            {
-                // Try registry first
-                using (var key = Registry.CurrentUser.OpenSubKey(@"Software\Valve\Steam"))
-                {
-                    var steamPath = key?.GetValue("SteamExe") as string;
-                    if (!string.IsNullOrEmpty(steamPath) && File.Exists(steamPath))
-                    {
-                        return steamPath;
-                    }
-                }
-                
-                // Try common locations
-                string[] commonPaths = {
-                    @"C:\Program Files (x86)\Steam\steam.exe",
-                    @"C:\Program Files\Steam\steam.exe",
-                    @"D:\Steam\steam.exe",
-                    @"E:\Steam\steam.exe"
-                };
-                
-                foreach (string path in commonPaths)
-                {
-                    if (File.Exists(path))
-                    {
-                        return path;
-                    }
-                }
-                
-                return null;
-            }
-            catch
-            {
-                return null;
-            }
-        }
+                <!-- Custom Title Bar -->
+                <Border Grid.Row="0" 
+                        Background="#FF161B22"
+                        CornerRadius="16,16,0,0"
+                        MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
 
-        private async Task WaitForGameStart()
-        {
-            Console.WriteLine("=== Phase 4: Waiting for Game Start ===");
-            
-            MessageBox.Show(
-                "Steam has been opened with the CS2 library page.\n\nPlease start Counter-Strike 2 now.\n\nThe loader will automatically detect when the game starts.",
-                "Start Counter-Strike 2",
-                MessageBoxButton.OK,
-                MessageBoxImage.Information);
-            
-            // Start monitoring for CS2 process
-            _gameDetected = false;
-            _processWatchTimer = new DispatcherTimer
-            {
-                Interval = TimeSpan.FromSeconds(2)
-            };
-            
-            _processWatchTimer.Tick += async (s, e) =>
-            {
-                var cs2Processes = Process.GetProcessesByName("cs2");
-                if (cs2Processes.Length > 0 && !_gameDetected && !_injectionStarted)
-                {
-                    Console.WriteLine("CS2 process detected! Waiting for main window...");
-                    
-                    // Stop timer immediately to prevent multiple detections
-                    _processWatchTimer?.Stop();
-                    _gameDetected = true;
-                    _injectionStarted = true;
-                    
-                    // Wait for the main window to appear
-                    bool windowFound = false;
-                    int windowWaitAttempts = 0;
-                    
-                    while (!windowFound && windowWaitAttempts < 30) // Wait up to 60 seconds
-                    {
-                        await Task.Delay(2000);
-                        windowWaitAttempts++;
+                        <!-- Branding Section -->
+                        <StackPanel Grid.Column="0" Orientation="Horizontal" 
+                                   VerticalAlignment="Center" Margin="24,0">
+                            <!-- CS2 Themed Logo -->
+                            <Border Background="{StaticResource AccentOrange}" 
+                                    CornerRadius="12" Width="40" Height="40" 
+                                    Margin="0,0,16,0">
+                                <Border.Effect>
+                                    <DropShadowEffect Color="#FF8C42" 
+                                                      BlurRadius="12" ShadowDepth="0" Opacity="0.8"/>
+                                </Border.Effect>
+                                <Viewbox Margin="8">
+                                    <Path Fill="White" Data="M12,2A10,10 0 0,1 22,12A10,10 0 0,1 12,22A10,10 0 0,1 2,12A10,10 0 0,1 12,2M12,4A8,8 0 0,0 4,12A8,8 0 0,0 12,20A8,8 0 0,0 20,12A8,8 0 0,0 12,4M12,6A6,6 0 0,1 18,12A6,6 0 0,1 12,18A6,6 0 0,1 6,12A6,6 0 0,1 12,6M12,8A4,4 0 0,0 8,12A4,4 0 0,0 12,16A4,4 0 0,0 16,12A4,4 0 0,0 12,8Z"/>
+                                </Viewbox>
+                            </Border>
+                            
+                            <!-- Title Section -->
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="Enclave Loader" 
+                                          Style="{StaticResource HeadingStyle}"
+                                          FontSize="16" 
+                                          FontWeight="Bold"
+                                          TextAlignment="Left"
+                                          Margin="0,0,0,-2"/>
+                                <TextBlock Text="Private Edition v3.0" 
+                                          Style="{StaticResource SubheadingStyle}"
+                                          FontSize="11" 
+                                          TextAlignment="Left"
+                                          Opacity="0.7"/>
+                            </StackPanel>
+                        </StackPanel>
+
+                        <!-- Window Controls -->
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" 
+                                   Margin="16,0,16,0"
+                                   VerticalAlignment="Center">
+                            <Button x:Name="MinimizeButton" Content="─" 
+                                   Style="{StaticResource TitleBarButtonStyle}" 
+                                   Click="MinimizeButton_Click" 
+                                   Margin="4,0"/>
+                            <Button x:Name="CloseButton" Content="✕" 
+                                   Style="{StaticResource TitleBarButtonStyle}" 
+                                   Click="CloseButton_Click" 
+                                   Margin="4,0"/>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+
+                <!-- Main Content Area -->
+                <Grid Grid.Row="1" Margin="80,60">
+                    <!-- Central CS2 Game Card -->
+                    <Border x:Name="GameCard" 
+                            Style="{StaticResource CS2CardStyle}"
+                            MaxWidth="520" 
+                            MaxHeight="600"
+                            HorizontalAlignment="Center" 
+                            VerticalAlignment="Center"
+                            MouseEnter="GameCard_MouseEnter" 
+                            MouseLeave="GameCard_MouseLeave">
+                        <Border.RenderTransform>
+                            <ScaleTransform x:Name="CardScaleTransform" ScaleX="1" ScaleY="1"/>
+                        </Border.RenderTransform>
+
+                        <Grid>
+                            <!-- CS2 Background Image Section -->
+                            <Border CornerRadius="24,24,0,0" 
+                                    Height="180" 
+                                    VerticalAlignment="Top"
+                                    ClipToBounds="True">
+                                <Border.Background>
+                                    <ImageBrush ImageSource="https://cdn.cloudflare.steamstatic.com/steam/apps/730/header.jpg" 
+                                              Stretch="UniformToFill"/>
+                                </Border.Background>
+                                <!-- Overlay for better text visibility -->
+                                <Border Background="#80000000" CornerRadius="24,24,0,0"/>
+                            </Border>
+
+                            <!-- Card Content -->
+                            <Grid Margin="40,200,40,40">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="20"/>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="30"/>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="40"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+
+                                <!-- Game Title -->
+                                <TextBlock Grid.Row="0" Text="Counter-Strike 2" 
+                                          Style="{StaticResource HeadingStyle}"
+                                          FontSize="32" 
+                                          FontWeight="ExtraBold"
+                                          HorizontalAlignment="Center">
+                                    <TextBlock.Effect>
+                                        <DropShadowEffect Color="#000000" Direction="270" ShadowDepth="2" BlurRadius="4" Opacity="0.7"/>
+                                    </TextBlock.Effect>
+                                </TextBlock>
+
+                                <!-- Game Subtitle -->
+                                <TextBlock Grid.Row="2" 
+                                          Text="Advanced DLL Loading System with Security Bypass" 
+                                          Style="{StaticResource SubheadingStyle}"
+                                          FontSize="14"
+                                          HorizontalAlignment="Center" 
+                                          TextWrapping="Wrap"
+                                          Opacity="0.9"/>
+
+                                <!-- Status Section with proper centering -->
+                                <Border Grid.Row="4" 
+                                       x:Name="StatusIndicator" 
+                                       Style="{StaticResource StatusIndicatorStyle}"
+                                       Background="{StaticResource AccentGreen}">
+                                    <StackPanel Orientation="Horizontal" 
+                                               HorizontalAlignment="Center"
+                                               VerticalAlignment="Center">
+                                        <Ellipse x:Name="StatusDot" Width="12" Height="12" 
+                                                Fill="White" 
+                                                VerticalAlignment="Center"
+                                                Margin="0,0,12,0">
+                                            <Ellipse.RenderTransform>
+                                                <ScaleTransform x:Name="StatusDotScale" ScaleX="1" ScaleY="1"/>
+                                            </Ellipse.RenderTransform>
+                                        </Ellipse>
+                                        <TextBlock x:Name="StatusText" Text="READY" 
+                                                  Foreground="White" 
+                                                  FontSize="13" 
+                                                  FontWeight="Bold"
+                                                  VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </Border>
+
+                                <!-- Load Button with proper sizing -->
+                                <Button Grid.Row="6" x:Name="LoadButton" 
+                                       Content="LOAD NOW" 
+                                       Style="{StaticResource ModernButtonStyle}"
+                                       HorizontalAlignment="Center" 
+                                       MinWidth="240"
+                                       Click="LoadButton_Click"/>
+                            </Grid>
+                        </Grid>
+                    </Border>
+
+                    <!-- Side Information Panel -->
+                    <StackPanel VerticalAlignment="Bottom" HorizontalAlignment="Right" 
+                               Margin="0,0,60,0" Opacity="0.6">
+                        <TextBlock Text="SYSTEM STATUS" 
+                                  Style="{StaticResource SubheadingStyle}"
+                                  FontSize="12" 
+                                  FontWeight="Bold"
+                                  TextAlignment="Left"
+                                  Margin="0,0,0,16"/>
                         
-                        var processes = Process.GetProcessesByName("cs2");
-                        foreach (var proc in processes)
-                        {
-                            if (proc.MainWindowHandle != IntPtr.Zero && !string.IsNullOrEmpty(proc.MainWindowTitle))
-                            {
-                                windowFound = true;
-                                Console.WriteLine($"CS2 window found: '{proc.MainWindowTitle}'");
-                                break;
-                            }
-                        }
-                        
-                        if (!windowFound)
-                        {
-                            Console.WriteLine($"Waiting for CS2 window... attempt {windowWaitAttempts}/30");
-                        }
-                    }
-                    
-                    if (windowFound)
-                    {
-                        Console.WriteLine("CS2 window detected! Playing beep sound...");
-                        
-                        // Play real beep sound
-                        PlayBeepSound();
-                        
-                        // Continue to next phase
-                        await WaitAndInject();
-                    }
-                    else
-                    {
-                        Console.WriteLine("CS2 process found but window not detected, resetting detection...");
-                        _gameDetected = false;
-                        _injectionStarted = false;
-                        _processWatchTimer?.Start();
-                    }
-                }
-            };
-            
-            _processWatchTimer.Start();
-            Console.WriteLine("Monitoring for CS2 process...");
-            
-            // Prevent method from continuing until game is detected
-            while (!_gameDetected)
-            {
-                await Task.Delay(500);
-            }
-        }
+                        <Border Background="#FF21262D" 
+                               CornerRadius="8" Padding="16,12" Margin="0,0,0,8">
+                            <StackPanel>
+                                <TextBlock Text="Security Bypass" 
+                                          Style="{StaticResource BodyTextStyle}"
+                                          FontSize="11" Margin="0,0,0,4"/>
+                                <TextBlock Text="ACTIVE" 
+                                          Foreground="{StaticResource AccentGreen}"
+                                          FontSize="11" FontWeight="Bold"/>
+                            </StackPanel>
+                        </Border>
 
-        private void PlayBeepSound()
-        {
-            try
-            {
-                // Single beep - simple and clean
-                Task.Run(() =>
-                {
-                    Console.Beep(1000, 300); // 1000 Hz for 300ms
-                });
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Could not play beep: {ex.Message}");
-                // Fallback to system sound
-                try
-                {
-                    System.Media.SystemSounds.Asterisk.Play();
-                }
-                catch { }
-            }
-        }
+                        <Border Background="#FF21262D" 
+                               CornerRadius="8" Padding="16,12" Margin="0,0,0,8">
+                            <StackPanel>
+                                <TextBlock Text="Detection Shield" 
+                                          Style="{StaticResource BodyTextStyle}"
+                                          FontSize="11" Margin="0,0,0,4"/>
+                                <TextBlock Text="ENABLED" 
+                                          Foreground="{StaticResource AccentBlue}"
+                                          FontSize="11" FontWeight="Bold"/>
+                            </StackPanel>
+                        </Border>
 
-        private async Task WaitAndInject()
-        {
-            Console.WriteLine("=== Phase 5: Waiting for Lobby and Injecting ===");
-            
-            // Random wait time between 40 seconds and 1 minute
-            var random = new Random();
-            int waitTime = random.Next(40000, 60001); // 40-60 seconds
-            Console.WriteLine($"Waiting {waitTime}ms for user to reach lobby...");
-            
-            await Task.Delay(waitTime);
-            
-            Console.WriteLine("Performing injection...");
-            
-            try
-            {
-                // Get the DLL path
-                string dllPath = GetDllPath();
-                
-                if (string.IsNullOrEmpty(dllPath) || !File.Exists(dllPath))
-                {
-                    throw new Exception("DLL file not found");
-                }
-                
-                // Perform the actual injection
-                bool success = await Task.Run(() => _loadingService.LoadDll(dllPath));
-                
-                if (success)
-                {
-                    Console.WriteLine("Injection successful!");
-                    
-                    // Play single success beep
-                    try
-                    {
-                        _ = Task.Run(() =>
-                        {
-                            Console.Beep(1200, 200); // Single high success tone
-                        });
-                    }
-                    catch 
-                    {
-                        System.Media.SystemSounds.Exclamation.Play();
-                    }
-                    
-                    // Don't show message box, just close
-                    await CloseApplication();
-                }
-                else
-                {
-                    throw new Exception("Injection failed");
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Injection error: {ex.Message}");
-                MessageBox.Show(
-                    $"Loading failed: {ex.Message}",
-                    "Error",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Error);
-            }
-        }
+                        <Border Background="#FF21262D" 
+                               CornerRadius="8" Padding="16,12">
+                            <StackPanel>
+                                <TextBlock Text="Loading Method" 
+                                          Style="{StaticResource BodyTextStyle}"
+                                          FontSize="11" Margin="0,0,0,4"/>
+                                <TextBlock Text="ADVANCED" 
+                                          Foreground="{StaticResource AccentPurple}"
+                                          FontSize="11" FontWeight="Bold"/>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </Grid>
 
-        private async Task CloseApplication()
-        {
-            Console.WriteLine("=== Phase 6: Closing Application ===");
-            
-            await Task.Delay(1000);
-            
-            // Close application immediately after success
-            Application.Current.Shutdown();
-        }
+                <!-- Modern Status Bar -->
+                <Border Grid.Row="2" 
+                       Background="#FF161B22"
+                       CornerRadius="0,0,16,16">
+                    <Grid Margin="30,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
 
-        private void AnimateWindowEntry()
-        {
-            // Fade in the entire window
-            this.Opacity = 0;
-            var fadeIn = new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(800))
-            {
-                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
-            };
-            this.BeginAnimation(OpacityProperty, fadeIn);
+                        <!-- Status Message -->
+                        <StackPanel Grid.Column="0" VerticalAlignment="Center" Orientation="Horizontal">
+                            <Ellipse x:Name="StatusBarDot" Width="8" Height="8" 
+                                    Fill="{StaticResource AccentGreen}" 
+                                    VerticalAlignment="Center"
+                                    Margin="0,0,12,0"/>
+                            <TextBlock x:Name="StatusMessage" 
+                                      Text="System ready for loading" 
+                                      Style="{StaticResource BodyTextStyle}"
+                                      FontSize="13"
+                                      VerticalAlignment="Center"/>
+                        </StackPanel>
 
-            // Scale in the game card with better easing
-            var scaleInStoryboard = new Storyboard();
-            
-            var scaleXAnimation = new DoubleAnimation(0.7, 1, TimeSpan.FromMilliseconds(1000))
-            {
-                EasingFunction = new BackEase { EasingMode = EasingMode.EaseOut, Amplitude = 0.4 }
-            };
-            
-            var scaleYAnimation = new DoubleAnimation(0.7, 1, TimeSpan.FromMilliseconds(1000))
-            {
-                EasingFunction = new BackEase { EasingMode = EasingMode.EaseOut, Amplitude = 0.4 }
-            };
-            
-            Storyboard.SetTarget(scaleXAnimation, CardScaleTransform);
-            Storyboard.SetTargetProperty(scaleXAnimation, new PropertyPath(ScaleTransform.ScaleXProperty));
-            
-            Storyboard.SetTarget(scaleYAnimation, CardScaleTransform);
-            Storyboard.SetTargetProperty(scaleYAnimation, new PropertyPath(ScaleTransform.ScaleYProperty));
-            
-            scaleInStoryboard.Children.Add(scaleXAnimation);
-            scaleInStoryboard.Children.Add(scaleYAnimation);
-            
-            scaleInStoryboard.Begin();
-        }
-
-        private void StartStatusDotAnimation()
-        {
-            _statusDotTimer = new DispatcherTimer
-            {
-                Interval = TimeSpan.FromMilliseconds(2000)
-            };
-            _statusDotTimer.Tick += (s, e) =>
-            {
-                var pulseStoryboard = new Storyboard();
-                
-                var pulseAnimation = new DoubleAnimationUsingKeyFrames();
-                pulseAnimation.KeyFrames.Add(new EasingDoubleKeyFrame(1.4, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(300))));
-                pulseAnimation.KeyFrames.Add(new EasingDoubleKeyFrame(1.0, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(600))));
-                
-                Storyboard.SetTarget(pulseAnimation, StatusDotScale);
-                Storyboard.SetTargetProperty(pulseAnimation, new PropertyPath(ScaleTransform.ScaleXProperty));
-                
-                var pulseAnimationY = pulseAnimation.Clone();
-                Storyboard.SetTarget(pulseAnimationY, StatusDotScale);
-                Storyboard.SetTargetProperty(pulseAnimationY, new PropertyPath(ScaleTransform.ScaleYProperty));
-                
-                pulseStoryboard.Children.Add(pulseAnimation);
-                pulseStoryboard.Children.Add(pulseAnimationY);
-                pulseStoryboard.Begin();
-            };
-            _statusDotTimer.Start();
-        }
-
-        private void TitleBar_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
-        {
-            if (e.ButtonState == MouseButtonState.Pressed)
-            {
-                this.DragMove();
-            }
-        }
-
-        private void MinimizeButton_Click(object sender, RoutedEventArgs e)
-        {
-            // Smooth minimize animation
-            var minimizeStoryboard = new Storyboard();
-            var minimizeAnimation = new DoubleAnimation(1, 0, TimeSpan.FromMilliseconds(250))
-            {
-                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseIn }
-            };
-            
-            Storyboard.SetTarget(minimizeAnimation, this);
-            Storyboard.SetTargetProperty(minimizeAnimation, new PropertyPath(OpacityProperty));
-            minimizeStoryboard.Children.Add(minimizeAnimation);
-            
-            minimizeStoryboard.Completed += (s, args) => this.WindowState = WindowState.Minimized;
-            minimizeStoryboard.Begin();
-        }
-
-        private void CloseButton_Click(object sender, RoutedEventArgs e)
-        {
-            // Smooth close animation with scale
-            var closeStoryboard = new Storyboard();
-            
-            var fadeAnimation = new DoubleAnimation(1, 0, TimeSpan.FromMilliseconds(400))
-            {
-                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseIn }
-            };
-            
-            var scaleAnimation = new DoubleAnimation(1, 0.9, TimeSpan.FromMilliseconds(400))
-            {
-                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseIn }
-            };
-            
-            Storyboard.SetTarget(fadeAnimation, this);
-            Storyboard.SetTargetProperty(fadeAnimation, new PropertyPath(OpacityProperty));
-            
-            Storyboard.SetTarget(scaleAnimation, CardScaleTransform);
-            Storyboard.SetTargetProperty(scaleAnimation, new PropertyPath(ScaleTransform.ScaleXProperty));
-            
-            var scaleAnimationY = scaleAnimation.Clone();
-            Storyboard.SetTarget(scaleAnimationY, CardScaleTransform);
-            Storyboard.SetTargetProperty(scaleAnimationY, new PropertyPath(ScaleTransform.ScaleYProperty));
-            
-            closeStoryboard.Children.Add(fadeAnimation);
-            closeStoryboard.Children.Add(scaleAnimation);
-            closeStoryboard.Children.Add(scaleAnimationY);
-            
-            closeStoryboard.Completed += (s, args) => this.Close();
-            closeStoryboard.Begin();
-        }
-
-        private void GameCard_MouseEnter(object sender, MouseEventArgs e)
-        {
-            if (_isLoading) return;
-
-            var hoverStoryboard = new Storyboard();
-            
-            var scaleAnimation = new DoubleAnimation
-            {
-                To = 1.02,
-                Duration = TimeSpan.FromMilliseconds(250),
-                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
-            };
-
-            var scaleAnimationY = scaleAnimation.Clone();
-            
-            Storyboard.SetTarget(scaleAnimation, CardScaleTransform);
-            Storyboard.SetTargetProperty(scaleAnimation, new PropertyPath(ScaleTransform.ScaleXProperty));
-            
-            Storyboard.SetTarget(scaleAnimationY, CardScaleTransform);
-            Storyboard.SetTargetProperty(scaleAnimationY, new PropertyPath(ScaleTransform.ScaleYProperty));
-            
-            hoverStoryboard.Children.Add(scaleAnimation);
-            hoverStoryboard.Children.Add(scaleAnimationY);
-            hoverStoryboard.Begin();
-        }
-
-        private void GameCard_MouseLeave(object sender, MouseEventArgs e)
-        {
-            if (_isLoading) return;
-
-            var leaveStoryboard = new Storyboard();
-            
-            var scaleAnimation = new DoubleAnimation
-            {
-                To = 1.0,
-                Duration = TimeSpan.FromMilliseconds(250),
-                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
-            };
-
-            var scaleAnimationY = scaleAnimation.Clone();
-            
-            Storyboard.SetTarget(scaleAnimation, CardScaleTransform);
-            Storyboard.SetTargetProperty(scaleAnimation, new PropertyPath(ScaleTransform.ScaleXProperty));
-            
-            Storyboard.SetTarget(scaleAnimationY, CardScaleTransform);
-            Storyboard.SetTargetProperty(scaleAnimationY, new PropertyPath(ScaleTransform.ScaleYProperty));
-            
-            leaveStoryboard.Children.Add(scaleAnimation);
-            leaveStoryboard.Children.Add(scaleAnimationY);
-            leaveStoryboard.Begin();
-        }
-
-        private async void LoadButton_Click(object sender, RoutedEventArgs e)
-        {
-            if (_isLoading) return;
-
-            await PerformLoading();
-        }
-
-        private void UpdateStatus(string status, Color indicatorColor, string message)
-        {
-            // Smooth status transition animation
-            var statusStoryboard = new Storyboard();
-            
-            var fadeOut = new DoubleAnimation(1, 0, TimeSpan.FromMilliseconds(200));
-            Storyboard.SetTarget(fadeOut, StatusIndicator);
-            Storyboard.SetTargetProperty(fadeOut, new PropertyPath(OpacityProperty));
-            
-            statusStoryboard.Children.Add(fadeOut);
-            statusStoryboard.Completed += (s, e) =>
-            {
-                // Update content
-                StatusText.Text = status.ToUpper();
-                StatusMessage.Text = message;
-                StatusDot.Fill = new SolidColorBrush(indicatorColor);
-                StatusIndicator.Background = new SolidColorBrush(indicatorColor);
-                StatusBarDot.Fill = new SolidColorBrush(indicatorColor);
-                
-                // Fade back in
-                var fadeInStoryboard = new Storyboard();
-                var fadeIn = new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(200));
-                Storyboard.SetTarget(fadeIn, StatusIndicator);
-                Storyboard.SetTargetProperty(fadeIn, new PropertyPath(OpacityProperty));
-                fadeInStoryboard.Children.Add(fadeIn);
-                fadeInStoryboard.Begin();
-            };
-            statusStoryboard.Begin();
-        }
-
-        private void PlaySuccessFeedback()
-        {
-            try
-            {
-                // Play system success sound
-                System.Media.SystemSounds.Asterisk.Play();
-            }
-            catch { /* Ignore sound errors */ }
-        }
-
-        private void PlayErrorFeedback()
-        {
-            try
-            {
-                // Play system error sound
-                System.Media.SystemSounds.Hand.Play();
-            }
-            catch { /* Ignore sound errors */ }
-        }
-
-        private string? GetDllPath()
-        {
-            try
-            {
-                Console.WriteLine("=== DLL Search Debug ===");
-                
-                // Priority 1: Embedded resource
-                Console.WriteLine("Checking embedded resource...");
-                string? embeddedPath = ExtractEmbeddedDll();
-                if (!string.IsNullOrEmpty(embeddedPath))
-                {
-                    Console.WriteLine($"Found embedded DLL at: {embeddedPath}");
-                    return embeddedPath;
-                }
-                Console.WriteLine("No embedded DLL found.");
-
-                // Priority 2: Relative to executable
-                string relativePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "loader.dll");
-                Console.WriteLine($"Checking relative path: {relativePath}");
-                if (File.Exists(relativePath))
-                {
-                    Console.WriteLine("Found relative DLL.");
-                    return relativePath;
-                }
-
-                // Priority 3: Common locations
-                string[] commonPaths = {
-                    @".\dlls\loader.dll",
-                    @".\resources\loader.dll",
-                    @".\Resources\loader.dll",
-                    @"C:\CS2Loader\loader.dll"
-                };
-
-                Console.WriteLine("Checking common paths...");
-                foreach (string path in commonPaths)
-                {
-                    Console.WriteLine($"  Checking: {Path.GetFullPath(path)}");
-                    if (File.Exists(path))
-                    {
-                        Console.WriteLine($"  Found: {path}");
-                        return path;
-                    }
-                }
-
-                Console.WriteLine("No DLL found in any location.");
-                return null;
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error in GetDllPath: {ex.Message}");
-                return null;
-            }
-        }
-
-        private string? ExtractEmbeddedDll()
-        {
-            try
-            {
-                var assembly = System.Reflection.Assembly.GetExecutingAssembly();
-                Console.WriteLine($"Assembly: {assembly.FullName}");
-                
-                // List all embedded resources for debugging
-                string[] resourceNames = assembly.GetManifestResourceNames();
-                Console.WriteLine("Available embedded resources:");
-                foreach (string name in resourceNames)
-                {
-                    Console.WriteLine($"  - {name}");
-                }
-
-                // The correct resource name is "Loader.Resources.loader.dll" based on your output
-                string correctResourceName = "Loader.Resources.loader.dll";
-                
-                Console.WriteLine($"Using correct resource name: {correctResourceName}");
-                using (Stream? stream = assembly.GetManifestResourceStream(correctResourceName))
-                {
-                    if (stream != null)
-                    {
-                        Console.WriteLine($"Found embedded resource: {correctResourceName}");
-                        string tempPath = Path.Combine(Path.GetTempPath(), $"cs2_loader_{Guid.NewGuid().ToString("N")[..8]}.dll");
-                        Console.WriteLine($"Extracting to: {tempPath}");
-                        
-                        using (FileStream fileStream = File.Create(tempPath))
-                        {
-                            stream.CopyTo(fileStream);
-                        }
-                        
-                        Console.WriteLine($"Extracted {new FileInfo(tempPath).Length} bytes");
-                        return tempPath;
-                    }
-                    else
-                    {
-                        Console.WriteLine("Embedded resource stream is null");
-                    }
-                }
-
-                Console.WriteLine("No embedded DLL resource found.");
-                return null;
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error extracting embedded DLL: {ex.Message}");
-                Console.WriteLine($"Stack trace: {ex.StackTrace}");
-                return null;
-            }
-        }
-
-        protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
-        {
-            _statusDotTimer?.Stop();
-            _processWatchTimer?.Stop();
-            base.OnClosing(e);
-        }
-
-        protected override void OnStateChanged(EventArgs e)
-        {
-            if (WindowState == WindowState.Minimized)
-            {
-                // Restore opacity when minimized
-                this.Opacity = 1;
-            }
-            base.OnStateChanged(e);
-        }
-    }
-}
+                        <!-- Progress Section -->
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                            <ProgressBar x:Name="ProgressBar" 
+                                        Width="200" Height="6" 
+                                        Background="{StaticResource DarkQuaternary}" 
+                                        Foreground="{StaticResource AccentBlue}"
+                                        Visibility="Collapsed" 
+                                        IsIndeterminate="True"
+                                        VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+            </Grid>
+        </Grid>
+    </Border>
+</Window>
