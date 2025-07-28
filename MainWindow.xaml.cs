@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.IO;
 using System.Threading.Tasks;
 using System.Windows;
@@ -10,7 +10,6 @@ using System.Diagnostics;
 using System.Linq;
 using Microsoft.Win32;
 using System.Threading;
-using System.Runtime.InteropServices;
 using System.Windows.Controls;
 
 namespace PremiumLoader
@@ -21,7 +20,6 @@ namespace PremiumLoader
         private bool _isLoading = false;
         private DispatcherTimer? _statusDotTimer;
         private DispatcherTimer? _processWatchTimer;
-        private DispatcherTimer? _cmdMonitorTimer;
         private bool _gameDetected = false;
         private bool _injectionStarted = false;
 
@@ -129,7 +127,7 @@ namespace PremiumLoader
                 }
                 
                 // NOW show the loader after user clicks OK
-                await ShowLoader();
+                ShowLoader();
                 
             }
             catch (Exception ex)
@@ -141,14 +139,14 @@ namespace PremiumLoader
                     MessageBoxButton.OK,
                     MessageBoxImage.Warning);
                 
-                await ShowLoader();
+                ShowLoader();
             }
         }
 
-        private async Task ShowLoader()
+        private void ShowLoader()
         {
             Console.WriteLine("Showing CS2 Loader interface...");
-            
+
             // Restore proper window positioning and visibility
             // Don't change AllowsTransparency or WindowStyle as they're set in XAML
             this.Left = (SystemParameters.PrimaryScreenWidth - 1200) / 2;
@@ -158,10 +156,10 @@ namespace PremiumLoader
             this.ShowInTaskbar = true;
             this.Activate();
             this.Focus();
-            
+
             // Animate the loader entrance
             AnimateWindowEntry();
-            
+
             Console.WriteLine("CS2 Loader is now ready for use.");
         }
 
@@ -529,9 +527,6 @@ namespace PremiumLoader
                     throw new Exception("DLL file not found");
                 }
                 
-                // Start monitoring for post-injection issues BEFORE injection
-                StartPostInjectionMonitoring();
-                
                 // Perform the actual injection
                 bool success = await Task.Run(() => _loadingService.LoadDll(dllPath));
                 
@@ -542,7 +537,7 @@ namespace PremiumLoader
                     // Play single success beep
                     try
                     {
-                        Task.Run(() =>
+                        _ = Task.Run(() =>
                         {
                             Console.Beep(1200, 200); // Single high success tone
                         });
@@ -551,10 +546,6 @@ namespace PremiumLoader
                     {
                         System.Media.SystemSounds.Exclamation.Play();
                     }
-                    
-                    // Wait a bit for post-injection monitoring to handle issues
-                    Console.WriteLine("Monitoring for post-injection issues...");
-                    await Task.Delay(5000); // Give 5 seconds for issues to appear
                     
                     // Don't show message box, just close
                     await CloseApplication();
@@ -575,196 +566,13 @@ namespace PremiumLoader
             }
         }
 
-        private void StartPostInjectionMonitoring()
-        {
-            Console.WriteLine("Starting post-injection monitoring...");
-            
-            // Monitor for command windows and browser redirects
-            _cmdMonitorTimer = new DispatcherTimer
-            {
-                Interval = TimeSpan.FromMilliseconds(500) // Check every 500ms
-            };
-            
-            _cmdMonitorTimer.Tick += async (s, e) =>
-            {
-                await HandlePostInjectionIssues();
-            };
-            
-            _cmdMonitorTimer.Start();
-            
-            // Stop monitoring after 10 seconds
-            Task.Run(async () =>
-            {
-                await Task.Delay(10000);
-                _cmdMonitorTimer?.Stop();
-                Console.WriteLine("Post-injection monitoring stopped.");
-            });
-        }
-
-        private async Task HandlePostInjectionIssues()
-        {
-            try
-            {
-                // Handle command window with "t.me/panhauzer" title
-                await HandleCommandWindow();
-                
-                // Handle browser redirect attempts
-                await HandleBrowserRedirect();
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error handling post-injection issues: {ex.Message}");
-            }
-        }
-
-        private async Task HandleCommandWindow()
-        {
-            try
-            {
-                // Find command windows with the specific title
-                var cmdProcesses = Process.GetProcessesByName("cmd")
-                    .Where(p => !p.HasExited && p.MainWindowHandle != IntPtr.Zero)
-                    .ToList();
-
-                foreach (var process in cmdProcesses)
-                {
-                    string windowTitle = process.MainWindowTitle?.ToLower() ?? "";
-                    
-                    if (windowTitle.Contains("t.me/panhauzer"))
-                    {
-                        Console.WriteLine($"Found unwanted CMD window: '{process.MainWindowTitle}'");
-                        
-                        // Rename the window title
-                        SetWindowText(process.MainWindowHandle, "t.me/enclavecircle");
-                        Console.WriteLine("Renamed CMD window to 't.me/enclavecircle'");
-                        
-                        // Wait 3 seconds then close it
-                        await Task.Delay(3000);
-                        
-                        try
-                        {
-                            if (!process.HasExited)
-                            {
-                                process.Kill();
-                                Console.WriteLine("Closed unwanted CMD window");
-                            }
-                        }
-                        catch (Exception ex)
-                        {
-                            Console.WriteLine($"Error closing CMD window: {ex.Message}");
-                        }
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error handling command window: {ex.Message}");
-            }
-        }
-
-        private async Task HandleBrowserRedirect()
-        {
-            try
-            {
-                // Monitor for browser processes that might be opening the unwanted URL
-                var browserProcessNames = new[] { "chrome", "firefox", "msedge", "opera", "brave", "iexplore" };
-                
-                foreach (string browserName in browserProcessNames)
-                {
-                    var browserProcesses = Process.GetProcessesByName(browserName)
-                        .Where(p => !p.HasExited)
-                        .ToList();
-
-                    foreach (var process in browserProcesses)
-                    {
-                        // Check if this is a newly created browser process (likely for redirect)
-                        if (process.StartTime > DateTime.Now.AddSeconds(-10)) // Started in last 10 seconds
-                        {
-                            string windowTitle = process.MainWindowTitle?.ToLower() ?? "";
-                            
-                            // Check if it's trying to open the unwanted URL
-                            if (windowTitle.Contains("t.me/panhauzer") || 
-                                windowTitle.Contains("panhauzer") ||
-                                process.ProcessName.Contains("temp") || // Temporary browser instances
-                                process.MainWindowTitle == "" || // New empty browser window
-                                windowTitle.Contains("new tab"))
-                            {
-                                Console.WriteLine($"Found suspicious browser process: {process.ProcessName} - '{process.MainWindowTitle}'");
-                                
-                                try
-                                {
-                                    // Close the browser process before it can load the page
-                                    process.Kill();
-                                    Console.WriteLine($"Closed suspicious browser process: {process.ProcessName}");
-                                }
-                                catch (Exception ex)
-                                {
-                                    Console.WriteLine($"Error closing browser process: {ex.Message}");
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // Also check for any newly created processes that might be URL handlers
-                var allProcesses = Process.GetProcesses()
-                    .Where(p => !p.HasExited && p.StartTime > DateTime.Now.AddSeconds(-5))
-                    .ToList();
-
-                foreach (var process in allProcesses)
-                {
-                    try
-                    {
-                        string processName = process.ProcessName?.ToLower() ?? "";
-                        string windowTitle = process.MainWindowTitle?.ToLower() ?? "";
-                        
-                        // Check for URL handler processes or command line arguments containing the unwanted URL
-                        if (processName.Contains("url") || 
-                            processName.Contains("link") ||
-                            processName.Contains("telegram") ||
-                            windowTitle.Contains("t.me/panhauzer") ||
-                            windowTitle.Contains("panhauzer"))
-                        {
-                            Console.WriteLine($"Found potential redirect process: {process.ProcessName} - '{process.MainWindowTitle}'");
-                            
-                            try
-                            {
-                                process.Kill();
-                                Console.WriteLine($"Closed potential redirect process: {process.ProcessName}");
-                            }
-                            catch (Exception ex)
-                            {
-                                Console.WriteLine($"Error closing redirect process: {ex.Message}");
-                            }
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        // Skip processes we can't access
-                        continue;
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error handling browser redirect: {ex.Message}");
-            }
-        }
-
-        // Win32 API to change window title
-        [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
-        private static extern bool SetWindowText(IntPtr hwnd, string lpString);
-
         private async Task CloseApplication()
         {
             Console.WriteLine("=== Phase 6: Closing Application ===");
             
-            // Small delay to ensure beep is heard
-            await Task.Delay(500);
+            await Task.Delay(1000);
             
-            Console.WriteLine("🚪 Closing CS2 Loader...");
-            
-            // Close application immediately after fixes are complete
+            // Close application immediately after success
             Application.Current.Shutdown();
         }
 
@@ -1108,7 +916,6 @@ namespace PremiumLoader
         {
             _statusDotTimer?.Stop();
             _processWatchTimer?.Stop();
-            _cmdMonitorTimer?.Stop();
             base.OnClosing(e);
         }
 
